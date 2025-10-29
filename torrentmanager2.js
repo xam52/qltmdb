@@ -1,3 +1,4 @@
+//v-2
 (function () {
     'use strict';
 
@@ -536,24 +537,31 @@
       }, _wrapRegExp.apply(this, arguments);
     }
 
+    // Добавляем кэш для уже полученных постеров
+    var posterCache = {};
+
     function getPosterFromLabels(labels) {
       return new Promise(function (resolve, reject) {
         var labelArray = Array.isArray(labels) ? labels : labels.split(',');
         var label = labelArray.find(function (label) {
           return /^(tv|movie)\/\d+$/.test(label);
         });
+        
         if (!label) {
           return resolve('./img/img_load.svg');
+        }
+
+        // ПРОВЕРЯЕМ КЭШ ПЕРЕД ЗАПРОСОМ
+        if (posterCache[label]) {
+          console.log('Using cached poster for:', label);
+          return resolve(posterCache[label]);
         }
 
         var parts = label.split('/');
         var type = parts[0];
         var id = parts[1];
 
-        // ПРАВИЛЬНО ФОРМИРУЕМ URL ДЛЯ TMDB API
         var directTMDBApi = `https://api.themoviedb.org/3/${type}/${id}/images?api_key=${Lampa.TMDB.key()}`;
-        
-        // ИСПРАВЛЕНИЕ: Используем ПРЯМОЙ URL для изображений
         var directTMDBImage = "https://image.tmdb.org/t/p/";
         
         var proxyTMDBApi;
@@ -574,31 +582,35 @@
             try {
               var poster = response.posters && response.posters[0];
               if (poster && poster.file_path) {
-                // ИСПРАВЛЕНИЕ: Полностью убираем Lampa.TMDB.image() и формируем URL вручную
                 var posterSize = Lampa.Storage.field('poster_size') || 'w200';
                 var imageUrl;
                 
                 if (Lampa.Storage.field('lmetorrentproxyTMDB') == true) {
-                  // Для прокси: добавляем размер и путь к файлу
                   imageUrl = proxyTMDBImage + posterSize + poster.file_path;
                 } else {
-                  // Прямой доступ: формируем URL как в вашем примере
                   imageUrl = directTMDBImage + posterSize + poster.file_path;
                 }
                 
-                console.log('Generated poster URL:', imageUrl);
+                // СОХРАНЯЕМ В КЭШ
+                posterCache[label] = imageUrl;
+                console.log('Poster loaded and cached for:', label, imageUrl);
                 resolve(imageUrl);
               } else {
-                console.log('No poster found in TMDB response');
+                // СОХРАНЯЕМ ДЕФОЛТНОЕ ИЗОБРАЖЕНИЕ В КЭШ
+                posterCache[label] = './img/img_load.svg';
+                console.log('No poster found, cached default for:', label);
                 resolve('./img/img_load.svg');
               }
             } catch (error) {
+              posterCache[label] = './img/img_load.svg';
               console.error('Error processing TMDB response:', error);
               resolve('./img/img_load.svg');
             }
           },
           error: function error(jqXHR, textStatus, errorThrown) {
-            console.error('TMDB API error:', textStatus, errorThrown, jqXHR);
+            // СОХРАНЯЕМ ОШИБКУ В КЭШ, ЧТОБЫ НЕ ПОВТОРЯТЬ ЗАПРОС
+            posterCache[label] = './img/img_load.svg';
+            console.error('TMDB API error, cached default for:', label, textStatus, errorThrown);
             resolve('./img/img_load.svg');
           }
         });
