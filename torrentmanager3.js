@@ -1,4 +1,4 @@
-//v-2
+//v-3
 (function () {
     'use strict';
 
@@ -539,6 +539,7 @@
 
     // Добавляем кэш для уже полученных постеров
     var posterCache = {};
+    var posterCacheKeys = [];
 
     function getPosterFromLabels(labels) {
       return new Promise(function (resolve, reject) {
@@ -551,9 +552,9 @@
           return resolve('./img/img_load.svg');
         }
 
-        // ПРОВЕРЯЕМ КЭШ ПЕРЕД ЗАПРОСОМ
-        if (posterCache[label]) {
-          console.log('Using cached poster for:', label);
+        if (posterCache.hasOwnProperty(label)) {
+          // Можно закомментировать console.log, если слишком много логов
+          // console.log('Using cached poster for:', label);
           return resolve(posterCache[label]);
         }
 
@@ -591,25 +592,47 @@
                   imageUrl = directTMDBImage + posterSize + poster.file_path;
                 }
                 
-                // СОХРАНЯЕМ В КЭШ
+                // Сохраняем в кэш
                 posterCache[label] = imageUrl;
+                posterCacheKeys.push(label);
+                
+                // Ограничиваем размер кэша
+                if (posterCacheKeys.length > 100) {
+                  var oldestKey = posterCacheKeys.shift();
+                  delete posterCache[oldestKey];
+                }
+                
                 console.log('Poster loaded and cached for:', label, imageUrl);
                 resolve(imageUrl);
               } else {
-                // СОХРАНЯЕМ ДЕФОЛТНОЕ ИЗОБРАЖЕНИЕ В КЭШ
+                // Сохраняем дефолтное изображение в кэш
                 posterCache[label] = './img/img_load.svg';
+                posterCacheKeys.push(label);
+                if (posterCacheKeys.length > 100) {
+                  var oldestKey = posterCacheKeys.shift();
+                  delete posterCache[oldestKey];
+                }
                 console.log('No poster found, cached default for:', label);
                 resolve('./img/img_load.svg');
               }
             } catch (error) {
               posterCache[label] = './img/img_load.svg';
+              posterCacheKeys.push(label);
+              if (posterCacheKeys.length > 100) {
+                var oldestKey = posterCacheKeys.shift();
+                delete posterCache[oldestKey];
+              }
               console.error('Error processing TMDB response:', error);
               resolve('./img/img_load.svg');
             }
           },
           error: function error(jqXHR, textStatus, errorThrown) {
-            // СОХРАНЯЕМ ОШИБКУ В КЭШ, ЧТОБЫ НЕ ПОВТОРЯТЬ ЗАПРОС
             posterCache[label] = './img/img_load.svg';
+            posterCacheKeys.push(label);
+            if (posterCacheKeys.length > 100) {
+              var oldestKey = posterCacheKeys.shift();
+              delete posterCache[oldestKey];
+            }
             console.error('TMDB API error, cached default for:', label, textStatus, errorThrown);
             resolve('./img/img_load.svg');
           }
