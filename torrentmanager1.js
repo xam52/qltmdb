@@ -536,67 +536,74 @@
       }, _wrapRegExp.apply(this, arguments);
     }
 
-function getPosterFromLabels(labels) {
-  return new Promise(function (resolve, reject) {
-    // Ищем лейблы, которые начинаются на tv или movie и содержат цифры после косой
-    var labelArray = Array.isArray(labels) ? labels : labels.split(',');
+    function getPosterFromLabels(labels) {
+      return new Promise(function (resolve, reject) {
+        var labelArray = Array.isArray(labels) ? labels : labels.split(',');
+        var label = labelArray.find(function (label) {
+          return /^(tv|movie)\/\d+$/.test(label);
+        });
+        if (!label) {
+          return resolve('./img/img_load.svg');
+        }
 
-    // Find label matching tv/movie pattern
-    var label = labelArray.find(function (label) {
-      return /^(tv|movie)\/\d+$/.test(label);
-    });
-    if (!label) {
-      return resolve('./img/img_load.svg');
-    }
+        var parts = label.split('/');
+        var type = parts[0];
+        var id = parts[1];
 
-    // ИЗВЛЕКАЕМ ID И ТИП ИЗ LABEL
-    var parts = label.split('/');
-    var type = parts[0]; // 'movie' или 'tv'
-    var id = parts[1];   // ID фильма/сериала
+        // ПРАВИЛЬНО ФОРМИРУЕМ URL ДЛЯ TMDB API
+        var directTMDBApi = `https://api.themoviedb.org/3/${type}/${id}/images?api_key=${Lampa.TMDB.key()}`;
+        
+        // ИСПРАВЛЕНИЕ: Используем ПРЯМОЙ URL для изображений
+        var directTMDBImage = "https://image.tmdb.org/t/p/";
+        
+        var proxyTMDBApi;
+        var proxyTMDBImage;
+        
+        if (Lampa.Storage.field('lmetorrentproxyTMDB') == true) {
+          proxyTMDBApi = `https://lampame.v6.rocks?destination=https://api.themoviedb.org/3/${type}/${id}/images?api_key=${Lampa.TMDB.key()}`;
+          proxyTMDBImage = 'https://lampame.v6.rocks?destination=https://image.tmdb.org/t/p/';
+        }
 
-    // ПРАВИЛЬНО ФОРМИРУЕМ URL ДЛЯ TMDB API
-    var directTMDBApi = `https://api.themoviedb.org/3/${type}/${id}/images?api_key=${Lampa.TMDB.key()}`;
-    var directTMDBImage = Lampa.TMDB.image("t/p/");
-    
-    var proxyTMDBApi;
-    var proxyTMDBImage;
-    
-    if (Lampa.Storage.field('lmetorrentproxyTMDB') == true) {
-      // ПРАВИЛЬНЫЙ URL ДЛЯ ПРОКСИ
-      proxyTMDBApi = `https://lampame.v6.rocks?destination=https://api.themoviedb.org/3/${type}/${id}/images?api_key=${Lampa.TMDB.key()}`;
-      proxyTMDBImage = 'https://lampame.v6.rocks?destination=https://image.tmdb.org/t/p/';
-    }
-
-    // Делаем GET-запрос к API TMDB
-    $.ajax({
-      url: Lampa.Storage.field('lmetorrentproxyTMDB') == true ? proxyTMDBApi : directTMDBApi,
-      method: 'GET',
-      headers: {
-        "x-requested-with": "lme-plugins"
-      },
-      success: function success(response) {
-        try {
-          // Проверяем, есть ли постеры в ответе
-          var poster = response.posters && response.posters[0];
-          if (poster && poster.file_path) {
-            // Формируем ссылку на изображение
-            var imageUrl = Lampa.Storage.field('lmetorrentproxyTMDB') == true 
-              ? proxyTMDBImage + (Lampa.Storage.field('poster_size') || 'w200') + poster.file_path 
-              : directTMDBImage + (Lampa.Storage.field('poster_size') || 'w200') + poster.file_path;
-            resolve(imageUrl);
-          } else {
+        $.ajax({
+          url: Lampa.Storage.field('lmetorrentproxyTMDB') == true ? proxyTMDBApi : directTMDBApi,
+          method: 'GET',
+          headers: {
+            "x-requested-with": "lme-plugins"
+          },
+          success: function success(response) {
+            try {
+              var poster = response.posters && response.posters[0];
+              if (poster && poster.file_path) {
+                // ИСПРАВЛЕНИЕ: Полностью убираем Lampa.TMDB.image() и формируем URL вручную
+                var posterSize = Lampa.Storage.field('poster_size') || 'w200';
+                var imageUrl;
+                
+                if (Lampa.Storage.field('lmetorrentproxyTMDB') == true) {
+                  // Для прокси: добавляем размер и путь к файлу
+                  imageUrl = proxyTMDBImage + posterSize + poster.file_path;
+                } else {
+                  // Прямой доступ: формируем URL как в вашем примере
+                  imageUrl = directTMDBImage + posterSize + poster.file_path;
+                }
+                
+                console.log('Generated poster URL:', imageUrl);
+                resolve(imageUrl);
+              } else {
+                console.log('No poster found in TMDB response');
+                resolve('./img/img_load.svg');
+              }
+            } catch (error) {
+              console.error('Error processing TMDB response:', error);
+              resolve('./img/img_load.svg');
+            }
+          },
+          error: function error(jqXHR, textStatus, errorThrown) {
+            console.error('TMDB API error:', textStatus, errorThrown, jqXHR);
             resolve('./img/img_load.svg');
           }
-        } catch (error) {
-          reject(new Error('Ошибка при обработке ответа TMDB'));
-        }
-      },
-      error: function error(jqXHR, textStatus, errorThrown) {
-        resolve('./img/img_load.svg');
-      }
-    });
-  });
-}
+        });
+      });
+    }
 
     var url$1 = Lampa.Storage.field("lmetorrentqBittorentUrl");
     var proxy$1 = "";
