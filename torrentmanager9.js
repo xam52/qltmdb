@@ -1,4 +1,4 @@
-//v-8
+//v-9
 (function () {
     'use strict';
 
@@ -657,14 +657,39 @@
 	      var allResults = movies.concat(tvShows);
 	      
 	      if (allResults.length === 0) {
-	        Lampa.Bell.push({
-	          text: 'No results found for: ' + cleanName
-	        });
-	        throw new Error('No metadata found');
-	      } else if (allResults.length === 1) {
+	        // Если не нашли, пробуем альтернативный поиск без года
+	        console.log('No results with year, trying without year...');
+	        var nameWithoutYear = cleanName.replace(/(19|20)\d{2}/g, '').trim();
+	        if (nameWithoutYear !== cleanName) {
+	          return Promise.all([
+	            searchMultipleMovies(nameWithoutYear),
+	            searchMultipleTV(nameWithoutYear)
+	          ]).then(function(altResults) {
+	            var altMovies = altResults[0] || [];
+	            var altTvShows = altResults[1] || [];
+	            var altAllResults = altMovies.concat(altTvShows);
+	            
+	            if (altAllResults.length === 0) {
+	              Lampa.Bell.push({
+	                text: 'No results found for: ' + cleanName
+	              });
+	              throw new Error('No metadata found');
+	            }
+	            return altAllResults;
+	          });
+	        } else {
+	          Lampa.Bell.push({
+	            text: 'No results found for: ' + cleanName
+	          });
+	          throw new Error('No metadata found');
+	        }
+	      }
+	      return allResults;
+	    }).then(function(allResults) {
+	      if (allResults.length === 1) {
 	        // Если только один результат - используем его
 	        var media = allResults[0];
-	        var label = media.media_type === 'movie' ? 'movie/' + media.id : 'tv/' + media.id;
+	        var label = media.media_type + '/' + media.id;
 	        console.log('Single result found, adding:', media.title || media.name, 'ID:', media.id);
 	        return addLabelToTorrent(torrentData.id, label).then(function() {
 	          return media;
@@ -786,13 +811,18 @@
 	      items: items,
 	      onSelect: function(item) {
 	        if (item.media) {
-	          var label = item.media.media_type === 'movie' ? 
-	                     'movie/' + item.media.id : 'tv/' + item.media.id;
-	          addLabelToTorrent(torrentData.id, label).then(function() {
-	            resolve(item.media);
-	          }).catch(function(error) {
-	            reject(error);
-	          });
+	          // ИСПРАВЛЕНИЕ: Используем правильную функцию addLabelToTorrent
+	          addLabelToTorrent(torrentData.id, item.media.media_type + '/' + item.media.id)
+	            .then(function() {
+	              resolve(item.media);
+	            })
+	            .catch(function(error) {
+	              console.error('Error adding label:', error);
+	              Lampa.Bell.push({
+	                text: 'Error adding metadata label'
+	              });
+	              reject(error);
+	            });
 	        } else {
 	          // Пользователь выбрал "Skip"
 	          resolve(null);
@@ -808,21 +838,56 @@
 
 	// Улучшенная функция очистки названия торрента
 	function cleanTorrentName(name) {
-	  // Удаляем расширения файлов, качество, год и другую техническую информацию
-	  var cleaned = name
-	    .replace(/\.[^/.]+$/, '') // Удаляем расширение файла
-	    .replace(/[\[\]\(\)]/g, ' ') // Заменяем скобки на пробелы
-	    .replace(/([Ss](\d+)[Ee](\d+))/g, ' ') // Удаляем информацию о сезонах и эпизодах
-	    .replace(/(1080p|720p|480p|4K|HDTV|WEB-DL|BluRay|DVD|RIP|x264|x265|AC3|DTS|AAC)/gi, '')
-	    .replace(/(19|20)\d{2}/g, '') // Удаляем годы
+	  console.log('Original name:', name);
+	  
+	  // Удаляем расширения файлов
+	  var cleaned = name.replace(/\.[^/.]+$/, '');
+	  
+	  // Удаляем техническую информацию (качество, кодеки и т.д.)
+	  cleaned = cleaned.replace(/([Ss](\d+)[Ee](\d+))/g, ' ') // Сезоны и эпизоды
+	    .replace(/(1080p|720p|480p|4K|HDTV|WEB-DL|BluRay|DVD|RIP|x264|x265|AC3|DTS|AAC|DD\.?\s?\d\.?\d?)/gi, '')
 	    .replace(/\s+/g, ' ') // Множественные пробелы в один
 	    .trim();
 	  
-	  // Удаляем возможные двойные пробелы и обрезаем длинные названия
-	  cleaned = cleaned.replace(/\s{2,}/g, ' ').substring(0, 100);
+	  // Сохраняем год выпуска - он важен для поиска
+	  var yearMatch = cleaned.match(/(19|20)\d{2}/g);
+	  var year = yearMatch ? yearMatch[0] : '';
 	  
-	  console.log('Cleaned torrent name:', name, '->', cleaned);
+	  // Удаляем все, что после года (если год найден)
+	  if (year) {
+	    cleaned = cleaned.split(year)[0].trim();
+	    cleaned = cleaned + ' ' + year; // Добавляем год в конец
+	  }
+	  
+	  // Удаляем лишние символы
+	  cleaned = cleaned.replace(/[\[\]\(\)]/g, ' ')
+	    .replace(/[^\w\sа-яА-ЯёЁ0-9\-&:\']/g, ' ')
+	    .replace(/\s+/g, ' ')
+	    .trim();
+	  
+	  // Если название слишком короткое после очистки, используем оригинал без расширения
+	  if (cleaned.length < 3) {
+	    cleaned = name.replace(/\.[^/.]+$/, '')
+	      .replace(/[\[\]\(\)]/g, ' ')
+	      .replace(/\s+/g, ' ')
+	      .trim();
+	  }
+	  
+	  console.log('Cleaned name:', cleaned);
 	  return cleaned;
+	}
+
+	// Функция для добавления label к торренту
+	function addLabelToTorrent(torrentHash, label) {
+	  return $.ajax({
+	    url: "".concat(proxy$1).concat(url$1, "/api/v2/torrents/addTags"),
+	    method: "POST",
+	    headers: getHeaders$3("application/x-www-form-urlencoded"),
+	    data: {
+	      hashes: torrentHash,
+	      tags: label
+	    }
+	  });
 	}
     //конеч
 
