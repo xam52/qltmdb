@@ -1,4 +1,4 @@
-//v-6
+v-7
 (function () {
     'use strict';
 
@@ -946,24 +946,22 @@
 	    if (btn.action === 'parse' || btn.action === 'parse-all') {
 	      console.log('Parse action called for qBittorrent:', btn.action);
 	      
-	      // Показываем уведомление о начале процесса
-	      var progressNotification = Lampa.Bell.push({
-	        text: 'Starting metadata search...',
-	        progress: true
-	      });
-	      
 	      if (btn.action === 'parse-all') {
 	        // Для всех торрентов
+	        Lampa.Bell.push({
+	          text: 'Starting metadata search for all torrents...'
+	        });
+	        
 	        GetData$3().then(function(allTorrents) {
 	          var total = allTorrents.length;
-	          var processed = 0;
 	          var successful = 0;
+	          
+	          console.log('Processing', total, 'torrents');
 	          
 	          // Обрабатываем каждый торрент последовательно чтобы не перегружать API
 	          var processNext = function(index) {
 	            if (index >= total) {
 	              // Все торренты обработаны
-	              progressNotification.close();
 	              Lampa.Bell.push({
 	                text: 'Metadata search completed: ' + successful + '/' + total + ' successful'
 	              });
@@ -972,14 +970,14 @@
 	            }
 	            
 	            var torrent = allTorrents[index];
-	            progressNotification.update('Processing: ' + torrent.name + ' (' + (index + 1) + '/' + total + ')');
+	            console.log('Processing torrent', index + 1, 'of', total, ':', torrent.name);
 	            
 	            searchAndAddMetadata(torrent).then(function() {
 	              successful++;
-	            }).catch(function() {
+	            }).catch(function(error) {
+	              console.log('Failed to add metadata for:', torrent.name, error);
 	              // Игнорируем ошибки для отдельных торрентов
 	            }).finally(function() {
-	              processed++;
 	              // Обрабатываем следующий торрент с задержкой чтобы не перегружать API
 	              setTimeout(function() {
 	                processNext(index + 1);
@@ -989,20 +987,20 @@
 	          
 	          processNext(0);
 	        }).catch(function(error) {
-	          progressNotification.close();
-	          console.error('Error processing all torrents:', error);
+	          console.error('Error getting torrent list:', error);
 	          Lampa.Bell.push({
-	            text: 'Error processing torrents'
+	            text: 'Error getting torrent list'
 	          });
 	          resolve();
 	        });
 	        
 	      } else {
 	        // Для одного торрента
-	        progressNotification.update('Searching: ' + torrent_data.name);
+	        Lampa.Bell.push({
+	          text: 'Searching metadata for: ' + torrent_data.name
+	        });
 	        
 	        searchAndAddMetadata(torrent_data).then(function(media) {
-	          progressNotification.close();
 	          if (media) {
 	            Lampa.Bell.push({
 	              text: 'Added metadata: ' + (media.title || media.name)
@@ -1010,8 +1008,10 @@
 	          }
 	          resolve();
 	        }).catch(function(error) {
-	          progressNotification.close();
 	          console.error('Error adding metadata:', error);
+	          Lampa.Bell.push({
+	            text: 'Failed to find metadata for: ' + torrent_data.name
+	          });
 	          resolve(); // Все равно разрешаем промис
 	        });
 	      }
