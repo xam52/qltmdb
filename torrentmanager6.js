@@ -1,4 +1,4 @@
-//v- 5
+//v-6
 (function () {
     'use strict';
 
@@ -640,60 +640,63 @@
       });
     }
     //начало
-    // Функция для поиска и добавления метаданных
+    // Функция для поиска и добавления метаданных с выбором
 	function searchAndAddMetadata(torrentData) {
 	  return new Promise(function(resolve, reject) {
-	    // Очищаем название торрента от лишней информации
 	    var cleanName = cleanTorrentName(torrentData.name);
 	    
 	    console.log('Searching metadata for:', cleanName);
 	    
-	    // Сначала ищем фильм
-	    searchMovie(cleanName).then(function(movie) {
-	      if (movie) {
-	        console.log('Found movie:', movie.title, 'ID:', movie.id);
-	        return addLabelToTorrent(torrentData.id, 'movie/' + movie.id).then(function() {
-	          return movie;
+	    // Ищем и фильмы и сериалы
+	    Promise.all([
+	      searchMultipleMovies(cleanName),
+	      searchMultipleTV(cleanName)
+	    ]).then(function(results) {
+	      var movies = results[0] || [];
+	      var tvShows = results[1] || [];
+	      var allResults = movies.concat(tvShows);
+	      
+	      if (allResults.length === 0) {
+	        Lampa.Bell.push({
+	          text: 'No results found for: ' + cleanName
+	        });
+	        throw new Error('No metadata found');
+	      } else if (allResults.length === 1) {
+	        // Если только один результат - используем его
+	        var media = allResults[0];
+	        var label = media.media_type === 'movie' ? 'movie/' + media.id : 'tv/' + media.id;
+	        console.log('Single result found, adding:', media.title || media.name, 'ID:', media.id);
+	        return addLabelToTorrent(torrentData.id, label).then(function() {
+	          return media;
 	        });
 	      } else {
-	        // Если фильм не нашли, ищем сериал
-	        return searchTV(cleanName).then(function(tvShow) {
-	          if (tvShow) {
-	            console.log('Found TV show:', tvShow.name, 'ID:', tvShow.id);
-	            return addLabelToTorrent(torrentData.id, 'tv/' + tvShow.id).then(function() {
-	              return tvShow;
-	            });
-	          } else {
-	            throw new Error('No metadata found');
-	          }
-	        });
+	        // Если несколько результатов - показываем выбор
+	        console.log('Multiple results found, showing selection dialog');
+	        return showMediaSelectionDialog(allResults, torrentData);
 	      }
 	    }).then(function(media) {
-	      console.log('Successfully added metadata for:', torrentData.name);
+	      if (media) {
+	        console.log('Successfully added metadata for:', torrentData.name);
+	        Lampa.Bell.push({
+	          text: 'Added: ' + (media.title || media.name)
+	        });
+	      }
 	      resolve(media);
 	    }).catch(function(error) {
 	      console.error('Failed to find metadata for:', torrentData.name, error);
+	      Lampa.Bell.push({
+	        text: 'Failed to find metadata for: ' + cleanName
+	      });
 	      reject(error);
 	    });
 	  });
 	}
 
-	// Функция для очистки названия торрента
-	function cleanTorrentName(name) {
-	  // Удаляем расширения файлов, качество, год и другую техническую информацию
-	  return name
-	    .replace(/\.[^/.]+$/, '') // Удаляем расширение файла
-	    .replace(/[\[\]\(\)]/g, ' ') // Заменяем скобки на пробелы
-	    .replace(/(1080p|720p|480p|4K|WEB-DL|BluRay|DVD|RIP|x264|x265|AC3|DTS)/gi, '')
-	    .replace(/\s+/g, ' ') // Множественные пробелы в один
-	    .trim();
-	}
-
-	// Функция поиска фильма в TMDB
-	function searchMovie(query) {
+	// Функция поиска нескольких фильмов
+	function searchMultipleMovies(query) {
 	  return new Promise(function(resolve, reject) {
 	    var searchUrl = proxy$1 + "https://api.themoviedb.org/3/search/movie?query=" + 
-	                    encodeURIComponent(query) + "&api_key=" + Lampa.TMDB.key();
+	                    encodeURIComponent(query) + "&api_key=" + Lampa.TMDB.key() + "&page=1";
 	    
 	    $.ajax({
 	      url: searchUrl,
@@ -701,9 +704,14 @@
 	      headers: getHeaders$3(),
 	      success: function(response) {
 	        if (response.results && response.results.length > 0) {
-	          resolve(response.results[0]); // Возвращаем первый результат
+	          // Добавляем тип медиа к каждому результату
+	          var movies = response.results.slice(0, 5).map(function(movie) {
+	            movie.media_type = 'movie';
+	            return movie;
+	          });
+	          resolve(movies);
 	        } else {
-	          resolve(null); // Фильм не найден
+	          resolve([]);
 	        }
 	      },
 	      error: function(error) {
@@ -713,11 +721,11 @@
 	  });
 	}
 
-	// Функция поиска сериала в TMDB
-	function searchTV(query) {
+	// Функция поиска нескольких сериалов
+	function searchMultipleTV(query) {
 	  return new Promise(function(resolve, reject) {
 	    var searchUrl = proxy$1 + "https://api.themoviedb.org/3/search/tv?query=" + 
-	                    encodeURIComponent(query) + "&api_key=" + Lampa.TMDB.key();
+	                    encodeURIComponent(query) + "&api_key=" + Lampa.TMDB.key() + "&page=1";
 	    
 	    $.ajax({
 	      url: searchUrl,
@@ -725,9 +733,14 @@
 	      headers: getHeaders$3(),
 	      success: function(response) {
 	        if (response.results && response.results.length > 0) {
-	          resolve(response.results[0]); // Возвращаем первый результат
+	          // Добавляем тип медиа к каждому результату
+	          var tvShows = response.results.slice(0, 5).map(function(tv) {
+	            tv.media_type = 'tv';
+	            return tv;
+	          });
+	          resolve(tvShows);
 	        } else {
-	          resolve(null); // Сериал не найден
+	          resolve([]);
 	        }
 	      },
 	      error: function(error) {
@@ -737,17 +750,79 @@
 	  });
 	}
 
-	// Функция для добавления label к торренту
-	function addLabelToTorrent(torrentHash, label) {
-	  return $.ajax({
-	    url: "".concat(proxy$1).concat(url$1, "/api/v2/torrents/addTags"),
-	    method: "POST",
-	    headers: getHeaders$3("application/x-www-form-urlencoded"),
-	    data: {
-	      hashes: torrentHash,
-	      tags: label
-	    }
+	// Функция показа диалога выбора
+	function showMediaSelectionDialog(results, torrentData) {
+	  return new Promise(function(resolve, reject) {
+	    // Создаем элементы для выбора
+	    var items = results.map(function(media, index) {
+	      var title = media.title || media.name;
+	      var year = media.release_date ? media.release_date.substring(0, 4) : 
+	                 media.first_air_date ? media.first_air_date.substring(0, 4) : 'N/A';
+	      var type = media.media_type === 'movie' ? 'Movie' : 'TV Show';
+	      
+	      return {
+	        title: title + ' (' + year + ') - ' + type,
+	        description: media.overview ? (media.overview.substring(0, 100) + '...') : 'No description',
+	        image: media.poster_path ? 
+	               (Lampa.Storage.field('lmetorrentproxyTMDB') == true ? 
+	                'https://lampame.v6.rocks?destination=https://image.tmdb.org/t/p/w200' + media.poster_path :
+	                'https://image.tmdb.org/t/p/w200' + media.poster_path) : 
+	               './img/img_load.svg',
+	        media: media
+	      };
+	    });
+	    
+	    // Добавляем вариант "Ничего не выбирать"
+	    items.push({
+	      title: 'Skip - Don\'t add metadata',
+	      description: 'Cancel metadata addition for this torrent',
+	      image: './img/img_load.svg',
+	      media: null
+	    });
+	    
+	    // Показываем диалог выбора
+	    Lampa.Select.show({
+	      title: 'Select correct title for: ' + torrentData.name,
+	      items: items,
+	      onSelect: function(item) {
+	        if (item.media) {
+	          var label = item.media.media_type === 'movie' ? 
+	                     'movie/' + item.media.id : 'tv/' + item.media.id;
+	          addLabelToTorrent(torrentData.id, label).then(function() {
+	            resolve(item.media);
+	          }).catch(function(error) {
+	            reject(error);
+	          });
+	        } else {
+	          // Пользователь выбрал "Skip"
+	          resolve(null);
+	        }
+	      },
+	      onBack: function() {
+	        // Пользователь отменил выбор
+	        resolve(null);
+	      }
+	    });
 	  });
+	}
+
+	// Улучшенная функция очистки названия торрента
+	function cleanTorrentName(name) {
+	  // Удаляем расширения файлов, качество, год и другую техническую информацию
+	  var cleaned = name
+	    .replace(/\.[^/.]+$/, '') // Удаляем расширение файла
+	    .replace(/[\[\]\(\)]/g, ' ') // Заменяем скобки на пробелы
+	    .replace(/([Ss](\d+)[Ee](\d+))/g, ' ') // Удаляем информацию о сезонах и эпизодах
+	    .replace(/(1080p|720p|480p|4K|HDTV|WEB-DL|BluRay|DVD|RIP|x264|x265|AC3|DTS|AAC)/gi, '')
+	    .replace(/(19|20)\d{2}/g, '') // Удаляем годы
+	    .replace(/\s+/g, ' ') // Множественные пробелы в один
+	    .trim();
+	  
+	  // Удаляем возможные двойные пробелы и обрезаем длинные названия
+	  cleaned = cleaned.replace(/\s{2,}/g, ' ').substring(0, 100);
+	  
+	  console.log('Cleaned torrent name:', name, '->', cleaned);
+	  return cleaned;
 	}
     //конеч
 
@@ -871,48 +946,72 @@
 	    if (btn.action === 'parse' || btn.action === 'parse-all') {
 	      console.log('Parse action called for qBittorrent:', btn.action);
 	      
+	      // Показываем уведомление о начале процесса
+	      var progressNotification = Lampa.Bell.push({
+	        text: 'Starting metadata search...',
+	        progress: true
+	      });
+	      
 	      if (btn.action === 'parse-all') {
-	        // Для всех торрентов - нужно получить список всех торрентов
-	        Lampa.Bell.push({
-	          text: 'Adding metadata to all torrents...'
-	        });
-	        
-	        // Получаем все торренты и обрабатываем каждый
+	        // Для всех торрентов
 	        GetData$3().then(function(allTorrents) {
-	          var promises = allTorrents.map(function(torrent) {
-	            return searchAndAddMetadata(torrent);
-	          });
+	          var total = allTorrents.length;
+	          var processed = 0;
+	          var successful = 0;
 	          
-	          return Promise.all(promises);
-	        }).then(function() {
+	          // Обрабатываем каждый торрент последовательно чтобы не перегружать API
+	          var processNext = function(index) {
+	            if (index >= total) {
+	              // Все торренты обработаны
+	              progressNotification.close();
+	              Lampa.Bell.push({
+	                text: 'Metadata search completed: ' + successful + '/' + total + ' successful'
+	              });
+	              resolve();
+	              return;
+	            }
+	            
+	            var torrent = allTorrents[index];
+	            progressNotification.update('Processing: ' + torrent.name + ' (' + (index + 1) + '/' + total + ')');
+	            
+	            searchAndAddMetadata(torrent).then(function() {
+	              successful++;
+	            }).catch(function() {
+	              // Игнорируем ошибки для отдельных торрентов
+	            }).finally(function() {
+	              processed++;
+	              // Обрабатываем следующий торрент с задержкой чтобы не перегружать API
+	              setTimeout(function() {
+	                processNext(index + 1);
+	              }, 1000);
+	            });
+	          };
+	          
+	          processNext(0);
+	        }).catch(function(error) {
+	          progressNotification.close();
+	          console.error('Error processing all torrents:', error);
 	          Lampa.Bell.push({
-	            text: 'Metadata added to all torrents successfully'
+	            text: 'Error processing torrents'
 	          });
 	          resolve();
-	        }).catch(function(error) {
-	          console.error('Error adding metadata to all torrents:', error);
-	          Lampa.Bell.push({
-	            text: 'Error adding metadata to some torrents'
-	          });
-	          resolve(); // Все равно разрешаем промис, чтобы не ломать интерфейс
 	        });
 	        
 	      } else {
 	        // Для одного торрента
-	        Lampa.Bell.push({
-	          text: 'Adding metadata to: ' + torrent_data.name
-	        });
+	        progressNotification.update('Searching: ' + torrent_data.name);
 	        
-	        searchAndAddMetadata(torrent_data).then(function() {
-	          Lampa.Bell.push({
-	            text: 'Metadata added successfully'
-	          });
+	        searchAndAddMetadata(torrent_data).then(function(media) {
+	          progressNotification.close();
+	          if (media) {
+	            Lampa.Bell.push({
+	              text: 'Added metadata: ' + (media.title || media.name)
+	            });
+	          }
 	          resolve();
 	        }).catch(function(error) {
+	          progressNotification.close();
 	          console.error('Error adding metadata:', error);
-	          Lampa.Bell.push({
-	            text: 'Error adding metadata'
-	          });
 	          resolve(); // Все равно разрешаем промис
 	        });
 	      }
