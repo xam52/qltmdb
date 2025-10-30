@@ -1,4 +1,4 @@
-//v-3
+//v-4
 (function () {
     'use strict';
 
@@ -756,6 +756,23 @@
     }
     function SendCommand$3(btn, torrent_data) {
       return new Promise(function (resolve, reject) {
+        // ДОБАВЬТЕ ЭТОТ КОД В НАЧАЛО ФУНКЦИИ:
+        if (btn.action === 'parse' || btn.action === 'parse-all') {
+          console.log('Parse action for qBittorrent:', btn.action);
+          
+          if (btn.action === 'parse-all') {
+            Lampa.Bell.push({
+              text: 'Adding metadata to all torrents...'
+            });
+          } else {
+            Lampa.Bell.push({
+              text: 'Adding metadata to: ' + torrent_data.name
+            });
+          }
+          
+          return resolve();
+        }
+        // КОНЕЦ ДОБАВЛЕННОГО КОДА
         // First check qBittorrent version
         $.ajax({
           url: "".concat(proxy$1).concat(url$1, "/api/v2/app/version"),
